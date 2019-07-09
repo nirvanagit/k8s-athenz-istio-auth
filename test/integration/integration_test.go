@@ -1,67 +1,23 @@
 package integration
 
 import (
-	"testing"
-	"io"
+	"crypto/tls"
 	"log"
+	"net"
+	"testing"
+	"time"
 
-	"k8s.io/apiserver/pkg/server"
-		"time"
+	openapi "github.com/go-openapi/spec"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/rest"
-	"k8s.io/apiserver/pkg/authorization/authorizerfactory"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apiserver/pkg/authorization/authorizerfactory"
+	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
+	"k8s.io/apiserver/pkg/server"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	"net"
-	"crypto/tls"
-	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
+	"k8s.io/client-go/rest"
 	kubeopenapi "k8s.io/kube-openapi/pkg/common"
-	openapi "github.com/go-openapi/spec"
 )
-
-
-type fakeCodec struct{}
-
-func (c *fakeCodec) Decode([]byte, *schema.GroupVersionKind, runtime.Object) (runtime.Object, *schema.GroupVersionKind, error) {
-	return nil, nil, nil
-}
-
-func (c *fakeCodec) Encode(obj runtime.Object, stream io.Writer) error {
-	return nil
-}
-
-type fakeNegotiatedSerializer struct{}
-
-func (n *fakeNegotiatedSerializer) SupportedMediaTypes() []runtime.SerializerInfo {
-	return nil
-}
-
-func (n *fakeNegotiatedSerializer) EncoderForVersion(serializer runtime.Encoder, gv runtime.GroupVersioner) runtime.Encoder {
-	return &fakeCodec{}
-}
-
-func (n *fakeNegotiatedSerializer) DecoderToVersion(serializer runtime.Decoder, gv runtime.GroupVersioner) runtime.Decoder {
-	return &fakeCodec{}
-}
-
-type fakeLocalhost443Listener struct{}
-
-func (fakeLocalhost443Listener) Accept() (net.Conn, error) {
-	return nil, nil
-}
-
-func (fakeLocalhost443Listener) Close() error {
-	return nil
-}
-
-func (fakeLocalhost443Listener) Addr() net.Addr {
-	return &net.TCPAddr{
-		IP:   net.IPv4(127, 0, 0, 1),
-		Port: 443,
-	}
-}
 
 func TestMain(m *testing.M) {
 	log.Println("in main")
@@ -88,12 +44,10 @@ func TestMain(m *testing.M) {
 	}
 	config.SecureServing = &server.SecureServingInfo{
 		Listener: listener,
-		Cert: &cert,
+		Cert:     &cert,
 	}
 	config.LoopbackClientConfig = restConfig
 	config.OpenAPIConfig = server.DefaultOpenAPIConfig(testGetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(runtime.NewScheme()))
-
-
 
 	stopCh := make(chan struct{})
 	shared := informers.NewSharedInformerFactory(clientset, 0)
