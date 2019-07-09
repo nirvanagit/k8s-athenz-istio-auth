@@ -2,8 +2,11 @@ package integration
 
 import (
 	"crypto/tls"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -17,6 +20,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	kubeopenapi "k8s.io/kube-openapi/pkg/common"
+
+	"github.com/coreos/etcd/etcdserver"
+	"github.com/coreos/etcd/pkg/types"
 )
 
 func TestMain(m *testing.M) {
@@ -58,7 +64,7 @@ func TestMain(m *testing.M) {
 		return
 	}
 	log.Println("before run")
-	apiServer.PrepareRun().Run(stopCh)
+	go apiServer.PrepareRun().Run(stopCh)
 	log.Println("after run")
 
 	//config := server.RecommendedConfig{}
@@ -90,8 +96,38 @@ func TestMain(m *testing.M) {
 	//	return
 	//}
 
+	//framework.EtcdMain(m.Run)
+	etcdDataDir, err := ioutil.TempDir(os.TempDir(), "integration_test_etcd_data")
+	if err != nil {
+		fmt.Errorf("unable to make temp etcd data dir: %v", err)
+	}
+	etcdUrl, err := types.NewURLs([]string{"http://127.0.0.1:2379"})
+	if err != nil {
+		fmt.Errorf("err getting etc url: %v", err)
+	}
+	etcdUrlMap, err := types.NewURLsMap("myetcd=http://127.0.0.1:2379")
+	if err != nil {
+		fmt.Errorf("err getting etc url map: %v", err)
+	}
+
+	cfg := etcdserver.ServerConfig{
+		Name:               "myetcd",
+		DataDir:            etcdDataDir,
+		NewCluster:         true,
+		ClientURLs:         etcdUrl,
+		PeerURLs:           etcdUrl,
+		ForceNewCluster:    true,
+		InitialPeerURLsMap: etcdUrlMap,
+		ElectionTicks:      2,
+	}
+	etcd, err := etcdserver.NewServer(cfg)
+	if err != nil {
+		fmt.Println("err", err)
+	}
+	go etcd.Start()
+
 	m.Run()
-	time.Sleep(time.Second)
+	time.Sleep(time.Minute)
 	log.Println("done")
 }
 
