@@ -2,7 +2,6 @@ package integration
 
 import (
 	"crypto/tls"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
@@ -26,15 +25,12 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	log.Println("in main")
 	restConfig := &rest.Config{}
 	restConfig.Host = "127.0.0.0:9999"
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
-		log.Println("in here")
-		log.Panicln(err.Error())
-		return
+		log.Panicln(err)
 	}
 
 	Scheme := runtime.NewScheme()
@@ -59,13 +55,9 @@ func TestMain(m *testing.M) {
 	shared := informers.NewSharedInformerFactory(clientset, 0)
 	apiServer, err := config.Complete(shared).New("api-server", server.NewEmptyDelegate())
 	if err != nil {
-		log.Println("error")
-		log.Panicln(err.Error())
-		return
+		log.Panicln(err)
 	}
-	log.Println("before run")
 	go apiServer.PrepareRun().Run(stopCh)
-	log.Println("after run")
 
 	//config := server.RecommendedConfig{}
 	//config.Serializer = &fakeNegotiatedSerializer{}
@@ -96,18 +88,17 @@ func TestMain(m *testing.M) {
 	//	return
 	//}
 
-	//framework.EtcdMain(m.Run)
 	etcdDataDir, err := ioutil.TempDir(os.TempDir(), "integration_test_etcd_data")
 	if err != nil {
-		fmt.Errorf("unable to make temp etcd data dir: %v", err)
+		log.Panicf("unable to make temp etcd data dir: %v", err)
 	}
 	etcdUrl, err := types.NewURLs([]string{"http://127.0.0.1:2379"})
 	if err != nil {
-		fmt.Errorf("err getting etc url: %v", err)
+		log.Panicf("err getting etc url: %v", err)
 	}
 	etcdUrlMap, err := types.NewURLsMap("myetcd=http://127.0.0.1:2379")
 	if err != nil {
-		fmt.Errorf("err getting etc url map: %v", err)
+		log.Panicf("err getting etc url map: %v", err)
 	}
 
 	cfg := etcdserver.ServerConfig{
@@ -122,13 +113,13 @@ func TestMain(m *testing.M) {
 	}
 	etcd, err := etcdserver.NewServer(cfg)
 	if err != nil {
-		fmt.Println("err", err)
+		log.Panicln(err)
 	}
 	go etcd.Start()
 
 	m.Run()
 	time.Sleep(time.Minute)
-	log.Println("done")
+	log.Println("exiting...")
 }
 
 func testGetOpenAPIDefinitions(_ kubeopenapi.ReferenceCallback) map[string]kubeopenapi.OpenAPIDefinition {
