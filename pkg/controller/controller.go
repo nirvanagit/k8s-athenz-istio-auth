@@ -129,10 +129,10 @@ func (c *Controller) getErrHandler(key string) processor.OnErrorFunc {
 				log.Errorf("%s Error performing %s on %s: %s", logPrefix, item.Operation, item.Resource.Key(), err)
 			}
 			if c.queue.NumRequeues(key) < queueNumRetries {
-				log.Printf("Controller: Retrying operation %s on %s due to processing error for %s", item.Operation, item.Resource.Key(), key)
+				log.Infof("Controller: Retrying operation %s on %s due to processing error for %s", item.Operation, item.Resource.Key(), key)
 				c.queue.AddRateLimited(key)
 			} else {
-				log.Printf("Controller: Max number of retries reached for %s.", key)
+				log.Errorf("Controller: Max number of retries reached for %s.", key)
 			}
 		}
 		return nil
