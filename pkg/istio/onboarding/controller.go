@@ -98,7 +98,6 @@ func (c *Controller) processNextItem() bool {
 		}
 	}
 
-	c.queue.Forget(key)
 	return true
 }
 
@@ -181,14 +180,22 @@ func (c *Controller) getOnboardedServiceList() []string {
 	return serviceList
 }
 
-// errHandler re-adds the key for a failed processor.sync operation
-func (c *Controller) errHandler(err error, item *processor.Item) error {
-	if err != nil {
-		if item != nil {
-			log.Errorf("%s Error performing %s on %s: %s", logPrefix, item.Operation, item.Resource.Key(), err)
-		}
-		c.queue.AddRateLimited(queueKey)
+// callbackHandler re-adds the key for a failed processor.sync operation
+func (c *Controller) callbackHandler(err error, item *processor.Item) error {
+	if err == nil {
+		return nil
 	}
+	if item != nil {
+		log.Errorf("%s Error performing %s on %s: %s", logPrefix, item.Operation, item.Resource.Key(), err)
+	}
+	if c.queue.NumRequeues(queueKey) >= queueNumRetries {
+		log.Errorf("%s Max number of retries reached for %s.", logPrefix, queueKey)
+		return nil
+	}
+	if item != nil {
+		log.Infof("%s Retrying operation %s on %s due to processing error for %s", logPrefix, item.Operation, item.Resource.Key(), queueKey)
+	}
+	c.queue.AddRateLimited(queueKey)
 	return nil
 }
 
@@ -205,9 +212,9 @@ func (c *Controller) sync() error {
 	if config == nil {
 		log.Infof("%s Creating cluster rbac config...", logPrefix)
 		item := processor.Item{
-			Operation:    model.EventAdd,
-			Resource:     newClusterRbacConfig(serviceList),
-			ErrorHandler: c.errHandler,
+			Operation:       model.EventAdd,
+			Resource:        newClusterRbacConfig(serviceList),
+			CallbackHandler: c.callbackHandler,
 		}
 		c.processor.ProcessConfigChange(&item)
 		return nil
@@ -216,9 +223,9 @@ func (c *Controller) sync() error {
 	if len(serviceList) == 0 {
 		log.Infof("%s Deleting cluster rbac config...", logPrefix)
 		item := processor.Item{
-			Operation:    model.EventDelete,
-			Resource:     newClusterRbacConfig(serviceList),
-			ErrorHandler: c.errHandler,
+			Operation:       model.EventDelete,
+			Resource:        newClusterRbacConfig(serviceList),
+			CallbackHandler: c.callbackHandler,
 		}
 		c.processor.ProcessConfigChange(&item)
 		return nil
@@ -236,9 +243,9 @@ func (c *Controller) sync() error {
 			Spec:       newClusterRbacSpec(serviceList),
 		}
 		item := processor.Item{
-			Operation:    model.EventUpdate,
-			Resource:     config,
-			ErrorHandler: c.errHandler,
+			Operation:       model.EventUpdate,
+			Resource:        config,
+			CallbackHandler: c.callbackHandler,
 		}
 		c.processor.ProcessConfigChange(&item)
 		return nil
@@ -261,9 +268,9 @@ func (c *Controller) sync() error {
 			Spec:       clusterRbacConfig,
 		}
 		item := processor.Item{
-			Operation:    model.EventUpdate,
-			Resource:     config,
-			ErrorHandler: c.errHandler,
+			Operation:       model.EventUpdate,
+			Resource:        config,
+			CallbackHandler: c.callbackHandler,
 		}
 		c.processor.ProcessConfigChange(&item)
 		return nil

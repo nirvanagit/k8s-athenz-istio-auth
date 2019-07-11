@@ -69,7 +69,7 @@ func equal(c1, c2 model.Config) bool {
 // 1. Converts the current and desired slices into a map for quick lookup
 // 2. Loops through the desired slice of items and identifies items that need to be created/updated
 // 3. Loops through the current slice of items and identifies items that need to be deleted
-func computeChangeList(current []model.Config, desired []model.Config, errHandler processor.OnErrorFunc) []*processor.Item {
+func computeChangeList(current []model.Config, desired []model.Config, errHandler processor.OnCompleteFunc) []*processor.Item {
 
 	currMap := convertSliceToKeyedMap(current)
 	desiredMap := convertSliceToKeyedMap(desired)
@@ -82,9 +82,9 @@ func computeChangeList(current []model.Config, desired []model.Config, errHandle
 		existingConfig, exists := currMap[key]
 		if !exists {
 			item := processor.Item{
-				Operation:    model.EventAdd,
-				Resource:     desiredConfig,
-				ErrorHandler: errHandler,
+				Operation:       model.EventAdd,
+				Resource:        desiredConfig,
+				CallbackHandler: errHandler,
 			}
 			changeList = append(changeList, &item)
 			continue
@@ -94,9 +94,9 @@ func computeChangeList(current []model.Config, desired []model.Config, errHandle
 			// copy metadata(for resource version) from current config to desired config
 			desiredConfig.ConfigMeta = existingConfig.ConfigMeta
 			item := processor.Item{
-				Operation:    model.EventUpdate,
-				Resource:     desiredConfig,
-				ErrorHandler: errHandler,
+				Operation:       model.EventUpdate,
+				Resource:        desiredConfig,
+				CallbackHandler: errHandler,
 			}
 			changeList = append(changeList, &item)
 			continue
@@ -109,9 +109,9 @@ func computeChangeList(current []model.Config, desired []model.Config, errHandle
 		_, exists := desiredMap[key]
 		if !exists {
 			item := processor.Item{
-				Operation:    model.EventDelete,
-				Resource:     currConfig,
-				ErrorHandler: errHandler,
+				Operation:       model.EventDelete,
+				Resource:        currConfig,
+				CallbackHandler: errHandler,
 			}
 			changeList = append(changeList, &item)
 		}
@@ -120,21 +120,24 @@ func computeChangeList(current []model.Config, desired []model.Config, errHandle
 	return changeList
 }
 
-// getErrHandler returns a error handler func that re-adds the athenz domain back to queue
+// getCallbackHandler returns a error handler func that re-adds the athenz domain back to queue
 // this explicit func definition takes in the key to avoid data race while accessing key
-func (c *Controller) getErrHandler(key string) processor.OnErrorFunc {
+func (c *Controller) getCallbackHandler(key string) processor.OnCompleteFunc {
 	return func(err error, item *processor.Item) error {
-		if err != nil {
-			if item != nil {
-				log.Errorf("%s Error performing %s on %s: %s", logPrefix, item.Operation, item.Resource.Key(), err)
-			}
-			if c.queue.NumRequeues(key) < queueNumRetries {
-				log.Infof("Controller: Retrying operation %s on %s due to processing error for %s", item.Operation, item.Resource.Key(), key)
-				c.queue.AddRateLimited(key)
-			} else {
-				log.Errorf("Controller: Max number of retries reached for %s.", key)
-			}
+		if err == nil {
+			return nil
 		}
+		if item != nil {
+			log.Errorf("%s Error performing %s on %s: %s", logPrefix, item.Operation, item.Resource.Key(), err)
+		}
+		if c.queue.NumRequeues(key) >= queueNumRetries {
+			log.Errorf("%s Max number of retries reached for %s.", logPrefix, key)
+			return nil
+		}
+		if item != nil {
+			log.Infof("%s Retrying operation %s on %s due to processing error for %s", logPrefix, item.Operation, item.Resource.Key(), key)
+		}
+		c.queue.AddRateLimited(key)
 		return nil
 	}
 }
@@ -165,10 +168,19 @@ func (c *Controller) sync(key string) error {
 	domainRBAC := m.ConvertAthenzPoliciesIntoRbacModel(signedDomain.Domain)
 	desiredCRs := c.rbacProvider.ConvertAthenzModelIntoIstioRbac(domainRBAC)
 	currentCRs := c.rbacProvider.GetCurrentIstioRbac(domainRBAC, c.configStoreCache)
-	errHandler := c.getErrHandler(key)
+	errHandler := c.getCallbackHandler(key)
 
 	changeList := computeChangeList(currentCRs, desiredCRs, errHandler)
+
+	// If change list is empty, nothing to do
+	if len(changeList) == 0 {
+		log.Infof("%s Everything is up-to-date for key: %s", logPrefix, key)
+		c.queue.Forget(key)
+		return nil
+	}
+
 	for _, item := range changeList {
+		log.Infof("%s Adding resource action to processor queue: %s on %s", logPrefix, item.Operation, item.Resource.Key())
 		c.processor.ProcessConfigChange(item)
 	}
 
@@ -235,7 +247,7 @@ func (c *Controller) processEvent(fn cache.KeyFunc, obj interface{}) {
 	log.Errorf("%s processEvent(): Error calling key func: %s", logPrefix, err.Error())
 }
 
-// processEvent is responsible for adding the key of the item to the queue
+// processConfigEvent is responsible for adding the key of the item to the queue
 func (c *Controller) processConfigEvent(config model.Config, e model.Event) {
 	domain := athenz.NamespaceToDomain(config.Namespace)
 	key := config.Namespace + "/" + domain
@@ -283,6 +295,7 @@ func (c *Controller) processNextItem() bool {
 	key, ok := keyRaw.(string)
 	if !ok {
 		log.Errorf("%s processNextItem(): String cast failed for key %v", logPrefix, key)
+		c.queue.Forget(keyRaw)
 		return true
 	}
 
@@ -297,7 +310,6 @@ func (c *Controller) processNextItem() bool {
 		}
 	}
 
-	c.queue.Forget(keyRaw)
 	return true
 }
 

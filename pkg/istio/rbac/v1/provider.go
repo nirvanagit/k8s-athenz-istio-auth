@@ -41,14 +41,14 @@ func (p *v1) ConvertAthenzModelIntoIstioRbac(m athenz.Model) []model.Config {
 		// Extract only the role name from the <domain>:role.<roleName> format
 		roleName, err := common.ParseRoleFQDN(m.Name, string(roleFQDN))
 		if err != nil {
-			log.Warningf("%s %s", logPrefix, err.Error())
+			log.Debugf("%s %s", logPrefix, err.Error())
 			continue
 		}
 
 		// Transform the assertions for an Athenz Role into a ServiceRole spec
 		srSpec, err := common.GetServiceRoleSpec(m.Name, roleName, assertions)
 		if err != nil {
-			log.Warningf("%s Error converting the assertions for role: %s to a ServiceRole: %s", logPrefix, roleName, err.Error())
+			log.Debugf("%s Error converting the assertions for role: %s to a ServiceRole: %s", logPrefix, roleName, err.Error())
 			continue
 		}
 
@@ -66,13 +66,13 @@ func (p *v1) ConvertAthenzModelIntoIstioRbac(m athenz.Model) []model.Config {
 		// Transform the members for an Athenz Role into a ServiceRoleBinding spec
 		roleMembers, exists := m.Members[roleFQDN]
 		if !exists {
-			log.Warningf("%s Cannot find members for the role:%s while creating a ServiceRoleBinding", logPrefix, roleName)
+			log.Debugf("%s Cannot find members for the role:%s while creating a ServiceRoleBinding", logPrefix, roleName)
 			continue
 		}
 
 		srbSpec, err := common.GetServiceRoleBindingSpec(roleName, k8sRoleName, roleMembers)
 		if err != nil {
-			log.Warningf("%s Error converting the members for role:%s to a ServiceRoleBinding: %s", logPrefix, roleName, err.Error())
+			log.Debugf("%s Error converting the members for role:%s to a ServiceRoleBinding: %s", logPrefix, roleName, err.Error())
 			continue
 		}
 
@@ -95,12 +95,12 @@ func (p *v1) GetCurrentIstioRbac(m athenz.Model, csc model.ConfigStoreCache) []m
 
 	sr, err := csc.List(model.ServiceRole.Type, m.Namespace)
 	if err != nil {
-		log.Warningf("%s Error listing the ServiceRole resources in the namespace: %s", logPrefix, m.Namespace)
+		log.Errorf("%s Error listing the ServiceRole resources in the namespace: %s", logPrefix, m.Namespace)
 	}
 
 	srb, err := csc.List(model.ServiceRoleBinding.Type, m.Namespace)
 	if err != nil {
-		log.Warningf("%s Error listing the ServiceRoleBinding resources in the namespace: %s", logPrefix, m.Namespace)
+		log.Errorf("%s Error listing the ServiceRoleBinding resources in the namespace: %s", logPrefix, m.Namespace)
 	}
 
 	return append(sr, srb...)
